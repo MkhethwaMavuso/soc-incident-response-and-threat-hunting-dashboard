@@ -7,6 +7,7 @@ import { broadcastIncidentUpdate } from '../utils/incidentBroadcast'
 
 const SIMULATION_INTERVAL_MS = 60 * 60 * 1000
 const ESCALATION_TIERS = ['SOC_ANALYST_L1', 'THREAT_HUNTER_L2', 'INCIDENT_COMMANDER', 'CISO'] as const
+const SCHEDULED_INCIDENT_TIERS = ['SOC_ANALYST_L1', 'THREAT_HUNTER_L2'] as const
 const hosts = [
   { hostname: 'FIN-WS-042', ipAddress: '10.24.8.42', nodeType: 'WORKSTATION', os: 'Windows 11', networkZone: 'INTRANET' },
   { hostname: 'EXT-GW-01', ipAddress: '203.0.113.18', nodeType: 'WEB_GATEWAY', os: 'Linux', networkZone: 'EXTRANET' },
@@ -48,8 +49,13 @@ function generateRecord(preferredZone?: typeof NETWORK_ZONES[number]) {
   }
 }
 
-export async function persistThreatBatch(io: Server | undefined, count = 5, incidentsPerTier = 0) {
-  const tieredIncidentCount = ESCALATION_TIERS.length * incidentsPerTier
+export async function persistThreatBatch(
+  io: Server | undefined,
+  count = 5,
+  incidentsPerTier = 0,
+  incidentTiers: readonly Exclude<Role, 'ADMIN'>[] = ESCALATION_TIERS,
+) {
+  const tieredIncidentCount = incidentTiers.length * incidentsPerTier
   const recordCount = Math.max(count, tieredIncidentCount)
   const records = Array.from({ length: recordCount }, (_, index) => generateRecord(
     recordCount >= 50 ? zoneChoices[index % zoneChoices.length] : undefined,
@@ -60,7 +66,7 @@ export async function persistThreatBatch(io: Server | undefined, count = 5, inci
     const isTieredIncident = index < tieredIncidentCount
     if (!isTieredIncident && log.severity !== 'CRITICAL') return []
     const escalationRole = isTieredIncident
-      ? ESCALATION_TIERS[Math.floor(index / incidentsPerTier)]
+      ? incidentTiers[Math.floor(index / incidentsPerTier)]
       : 'SOC_ANALYST_L1'
     return [{
       title: `Simulated ${log.eventCategory.replaceAll('_', ' ').toLowerCase()} alert`,
@@ -104,19 +110,22 @@ export function getSimulationStatus() {
 export function startThreatSimulator(io: Server) {
   if (!stopped) return () => stopThreatSimulator()
   stopped = false
-  nextRunAt = new Date(Date.now() + SIMULATION_INTERVAL_MS)
-  scheduledRun = setInterval(async () => {
+  const runScheduledBatch = async () => {
     if (stopped || batchRunning) return
     batchRunning = true
     try {
-      await persistThreatBatch(io, 20, 5)
+      const batch = await persistThreatBatch(io, 10, 5, SCHEDULED_INCIDENT_TIERS)
+      console.info(`Scheduled threat simulation created ${batch.incidents.length} incidents.`)
     } catch (error) {
       console.error('Scheduled threat simulation failed:', error)
     } finally {
       batchRunning = false
       if (!stopped) nextRunAt = new Date(Date.now() + SIMULATION_INTERVAL_MS)
     }
-  }, SIMULATION_INTERVAL_MS)
+  }
+  nextRunAt = new Date()
+  void runScheduledBatch()
+  scheduledRun = setInterval(() => { void runScheduledBatch() }, SIMULATION_INTERVAL_MS)
   scheduledRun.unref()
   return () => stopThreatSimulator()
 }
