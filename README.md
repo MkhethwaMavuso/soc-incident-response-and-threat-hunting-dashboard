@@ -25,3 +25,47 @@ Execution: Security analysts initiate actions (e.g., host isolation, IP blacklis
 🛡️ Containment Automation: 1-click execution of host isolation workflows, IP blocking rules, and rogue process termination routines dispatched through backend controllers.
 📊 Threat Hunting & Analytics: Deep log query builders, MITRE ATT&CK framework mapping, severity score filters, and visual incident timeline views powered by MongoDB aggregations.
 🗄️ High-Throughput Schema Design: Indexed MongoDB collections (LogEntry, Incident, ThreatIndicator) optimized for high-volume ingest and sub-second analytical queries.
+
+## Run locally
+
+Requirements: Node.js 20+, npm, and MongoDB 6+ (local or Atlas).
+
+```bash
+npm install
+cp server/.env.example server/.env
+```
+
+Set `MONGO_URI` and a randomly generated `JWT_SECRET` of at least 32 characters in `.env`. Set `SOC_ADMIN_EMAIL` and `SOC_ADMIN_PASSWORD` to bootstrap a unique administrator account with a password of at least 14 characters. If no password is supplied, first startup generates a one-time password and prints it to the server log; configure a private secret before deployment.
+
+```bash
+npm run indexes --workspace=server
+npm run dev
+```
+
+On an empty database, server startup creates the initial `ADMIN` and 50 synthetic, non-operational threat records. The seed command (`npm run seed --workspace=server`) can also be run manually and is safe to repeat.
+
+The Vite client is available at `http://localhost:5173` and the API at `http://localhost:4000`. In development, the Vite server proxies `/api` and `/socket.io` to the backend, so the browser uses the client origin instead of trying to reach its own `localhost:4000`. The client starts in demo mode with simulated telemetry. Use **Connect API** to sign in and switch to authenticated MongoDB data and Socket.io events. To point the client at a separately deployed API, set `VITE_API_URL` (including `/api`) and `VITE_SOCKET_URL` in the client build environment.
+
+## API and roles
+
+- `POST /api/auth/login` issues a signed bearer token without an expiration time. Protect tokens carefully; rotate `JWT_SECRET` to invalidate issued tokens.
+- `GET /api/health` is the unauthenticated service health check.
+- Authenticated routes provide logs, incidents, and threat indicators. Indicator creation and containment routes require `ADMIN`, `THREAT_HUNTER_L2`, or `INCIDENT_COMMANDER`.
+- `GET /api/staff` and staff create, update, and delete routes require the `ADMIN` role. Staff passwords are bcrypt-hashed, and account changes revoke existing Socket.io sessions.
+- Incidents can be escalated with required notes through `POST /api/incidents/:id/escalate` in the order L1 → Threat Hunter L2 → Incident Commander → CISO, or resolved with required notes through `POST /api/incidents/:id/resolve`. The escalation and resolution notes are retained in the incident record and broadcast to connected dashboards.
+- Incident visibility is tier-scoped: L1, L2, and CISO staff see incidents assigned to their own tier; Incident Commanders and Admins see all incidents. Escalation can be initiated only by an Admin or a user at the incident's current tier. On escalation, the previous tier receives only an access-revocation event, not the incident details.
+- `POST /api/simulation/trigger-now` (ADMIN only) persists five synthetic threats and broadcasts `threat:new_batch`; every hourly run persists at least five incidents for each escalation tier (L1, L2, Incident Commander, and CISO), with real-time updates. `GET /api/simulation/status` provides the next scheduled run.
+- Log and incident records include a network zone and target-node snapshot, indexed by zone, severity, and timestamp.
+- `POST /api/containment/isolate` and `POST /api/containment/blacklist` only append simulated, incident-linked audit entries. They do not isolate an endpoint or change firewall/network policy.
+- Live socket telemetry is generated simulation data; connect production sensor ingestion and an approved response integration before operational use.
+
+Create additional users through the administrator-only Staff & RBAC screen. The bootstrap process does not reset an existing account's password.
+
+## Deployment
+
+- **Netlify:** use `client/netlify.toml`; build from the repository root with the client workspace build command. Configure `VITE_API_URL` and `VITE_SOCKET_URL` for the deployed Render service.
+- **Render:** create a Blueprint from `server/render.yaml`. Provide `MONGO_URI` and `CLIENT_ORIGIN`; Render generates `JWT_SECRET`. Run the seed command once with `SOC_ADMIN_EMAIL` and `SOC_ADMIN_PASSWORD` configured in a controlled environment.
+- Provision indexes after deploying schema changes with `npm run indexes --workspace=server`; production disables Mongoose auto-indexing.
+- Run `npm run build` at the repository root to build both workspaces.
+
+This repository is a deployable reference implementation, not a production-ready response appliance. Before handling real telemetry, configure TLS and secrets, provision least-privilege accounts, set MongoDB network access and backups, define retention, and connect only approved sensor/containment integrations.

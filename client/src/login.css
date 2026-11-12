@@ -1,0 +1,7 @@
+.auth-button{height:25px;background:transparent;border:1px solid #354348;border-radius:3px;padding:0 8px;color:#b8c5bd;font:8px 'DM Mono';white-space:nowrap}
+.auth-button:hover{border-color:#9fcf73;color:#d5edbf}
+.login-modal{width:min(400px,100%);background:#182327;border:1px solid #3a494b;border-radius:5px;box-shadow:0 20px 70px #0008;padding:22px}
+.login-modal form label{display:block;margin:14px 0 0;color:#9eaca5;font-size:9px}
+.login-modal form input{display:block;width:100%;height:36px;margin-top:6px;padding:0 10px;background:#121a1d;border:1px solid #354347;border-radius:3px;color:#e3ebe5;font-size:10px}
+.login-modal .modal-actions{margin-top:19px}
+.login-error{margin-top:12px;color:#ff9584;font-size:9px}
